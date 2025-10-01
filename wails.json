@@ -16,5 +16,8 @@
     "productVersion": "1.0.0",
     "copyright": "Copyright...",
     "comments": "Automatically organize files into logical folders"
+  },
+  "darwin": {
+    "entitlements": "build/darwin/entitlements.plist"
   }
 }

@@ -1,6 +1,6 @@
-# File Organizer
+# Delphi File Organizer
 
-A desktop application built with Go and Wails that automatically analyzes and organizes files into logical folders.
+A desktop application built with Go and Wails that automatically analyzes and organizes files on a computer into logical folders based on file type and metadata.
 
 ## Features
 
@@ -29,6 +29,7 @@ The application organizes files into these categories:
 - Go 1.21 or later
 - Node.js 18 or later
 - Wails v2 CLI
+- macOS: Full Disk Access or permission to access folders like Downloads, Documents, Desktop
 
 ## Installation
 
@@ -67,6 +68,15 @@ wails build
 
 The compiled application will be in the `build/bin` directory.
 
+### macOS Permissions
+
+On macOS, the application requires file access permissions. When you first run the app and try to access protected folders (Downloads, Documents, Desktop, etc.), macOS will prompt you to grant permission. Alternatively, you can manually grant Full Disk Access:
+
+1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**
+2. Click the **+** button
+3. Navigate to and select the **File Organizer.app**
+4. Restart the application
+
 ### Build for specific platforms:
 
 ```bash
@@ -96,9 +106,16 @@ wails build -platform linux/amd64
 ```
 .
 ├── main.go              # Application entry point
-├── app.go               # Backend logic (file analysis & organization)
+├── app.go               # App struct and AnalyzeDirectory method
+├── types.go             # Data structures (FileInfo, FileMove, etc.)
+├── hash.go              # Content hash calculation (SHA-256)
+├── mime.go              # MIME type detection and categorization
+├── categorize.go        # File categorization logic
+├── context.go           # Directory context analysis
+├── moves.go             # File move execution and conflict resolution
 ├── go.mod               # Go dependencies
 ├── wails.json           # Wails configuration
+├── CLAUDE.md            # AI development guidelines and technical docs
 ├── frontend/
 │   ├── src/
 │   │   ├── App.svelte   # Main UI component
@@ -113,9 +130,52 @@ wails build -platform linux/amd64
 
 ### Backend (Go)
 
-- **AnalyzeDirectory**: Walks through the specified directory, categorizes files by extension, and proposes moves
-- **ExecuteMoves**: Executes approved file moves, creates necessary folders, and handles conflicts
-- **categorizeFile**: Determines the appropriate category for each file based on its extension
+The application uses a Go backend with the following key components:
+
+#### Core Data Structures
+
+- **FileInfo**: Represents file metadata including path, name, size, extension, modified time
+- **FileMove**: Represents a proposed file move operation with source, destination, category, and reason
+- **AnalysisResult**: Contains total file count and array of proposed moves
+- **MoveResult**: Contains execution results with success/failure counts and created folders
+
+#### Core Methods
+
+- **AnalyzeDirectory(dirPath string) AnalysisResult**:
+  - Walks through the specified directory using `filepath.WalkDir`
+  - Skips hidden files/folders (starting with ".")
+  - Categorizes each file by extension using `categorizeFile()`
+  - Only proposes moves for files not already in the correct category folder
+  - Returns analysis with all proposed moves
+
+- **ExecuteMoves(moves []FileMove) MoveResult**:
+  - Creates destination directories with `os.MkdirAll` (0755 permissions)
+  - Checks for existing files and uses `getUniqueFilePath()` to avoid conflicts
+  - Executes file moves using `os.Rename`
+  - Tracks created folders and failed operations
+  - Returns detailed results
+
+- **categorizeFile(file FileInfo) (category, reason)**:
+  - Determines category based on file extension
+  - Uses predefined extension maps for each category
+  - Returns category name and human-readable reason
+  - Defaults to "Other" for unknown types
+
+- **getUniqueFilePath(path string)**:
+  - Generates unique file paths by appending numeric suffixes (_1, _2, etc.)
+  - Prevents file overwriting during moves
+
+#### File Categorization Logic
+
+Files are categorized purely by extension into these predefined categories:
+- Images: 11 extensions (.jpg, .png, .gif, etc.)
+- Documents: 15 extensions (.pdf, .docx, .txt, etc.)
+- Videos: 10 extensions (.mp4, .mov, .mkv, etc.)
+- Audio: 8 extensions (.mp3, .wav, .flac, etc.)
+- Archives: 8 extensions (.zip, .rar, .7z, etc.)
+- Code: 23 extensions (.go, .py, .js, etc.)
+- Applications: 6 extensions (.exe, .app, .deb, etc.)
+- Other: Catch-all for unrecognized extensions
 
 ### Frontend (Svelte)
 
@@ -124,14 +184,57 @@ wails build -platform linux/amd64
 - Grouped view by category
 - Detailed move information (source, destination, reason)
 - Execution results with success/failure reporting
+- Calls Go backend methods via Wails bridge
+
+### Application Flow
+
+1. User inputs directory path
+2. Frontend calls `AnalyzeDirectory(path)` via Wails bridge
+3. Backend walks directory tree, skipping hidden files
+4. Each file is categorized by extension
+5. Proposed moves returned to frontend (only files not in correct folder)
+6. User reviews/selects files to move in UI
+7. Frontend calls `ExecuteMoves(selectedMoves)`
+8. Backend creates folders, handles conflicts, executes moves
+9. Results displayed showing success/failure for each operation
 
 ## Safety Features
 
 - **Dry run first**: Always shows proposed changes before executing
-- **Conflict handling**: Automatically renames files if destination exists
+- **Conflict handling**: Automatically renames files if destination exists (adds numeric suffix)
 - **Error reporting**: Detailed feedback on any failed operations
 - **No destructive operations**: Only moves files, never deletes
-- **Skip hidden files**: Ignores files and folders starting with "."
+- **Skip hidden files**: Ignores files and folders starting with "." to avoid system files
+- **Permission safety**: Creates directories with 0755 permissions
+
+## Advanced Features
+
+### Multi-Factor Categorization
+
+The application uses an intelligent decision tree that considers:
+- **Content hash (SHA-256)** for duplicate detection
+- **MIME type** for accurate file type identification
+- **Directory context** to preserve relationships between related files
+- **File extension** as a fallback
+
+### Smart Organization
+
+- **Duplicate Detection**: Files with identical content are automatically grouped
+- **Hierarchical Organization**: Related files stay together (e.g., `Images/ProjectPhotos`)
+- **MIME-based Accuracy**: Handles files with wrong or missing extensions
+- **Context-Aware**: Files in directories with a dominant type (>50%) are kept together
+
+## Code Organization
+
+- **app.go**: Main application struct and directory analysis
+- **types.go**: All data structures (FileInfo, FileMove, etc.)
+- **hash.go**: SHA-256 content hash calculation
+- **mime.go**: MIME type detection and categorization
+- **categorize.go**: File categorization logic
+- **context.go**: Directory context analysis
+- **moves.go**: File move execution and conflict resolution
+
+For detailed technical documentation and AI development guidelines, see [CLAUDE.md](CLAUDE.md).
 
 ## License
 
